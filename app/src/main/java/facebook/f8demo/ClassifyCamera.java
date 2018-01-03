@@ -47,9 +47,23 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
+
+import android.app.Activity;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.os.Bundle;
+import android.widget.ImageView;
+import android.content.DialogInterface;
+import android.app.AlertDialog;
+
 import static android.view.View.SYSTEM_UI_FLAG_IMMERSIVE;
 
-public class ClassifyCamera extends AppCompatActivity {
+public final class  ClassifyCamera extends AppCompatActivity {
     private static final String TAG = "F8DEMO";
     private static final int REQUEST_CAMERA_PERMISSION = 200;
 
@@ -192,7 +206,27 @@ public class ClassifyCamera extends AppCompatActivity {
             e.printStackTrace();
         }
     }
-
+    public Bitmap returnBitMap(String url){
+        URL myFileUrl = null;
+        Bitmap bitmap = null;
+        try {
+            myFileUrl = new URL(url);
+        } catch (MalformedURLException e) {
+            e.printStackTrace();
+        }
+        try {
+            HttpURLConnection conn = (HttpURLConnection) myFileUrl
+                    .openConnection();
+            conn.setDoInput(true);
+            conn.connect();
+            InputStream is = conn.getInputStream();
+            bitmap = BitmapFactory.decodeStream(is);
+            is.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return bitmap;
+    }
     protected void createCameraPreview() {
         try {
             SurfaceTexture texture = textureView.getSurfaceTexture();
@@ -206,6 +240,19 @@ public class ClassifyCamera extends AppCompatActivity {
                 @Override
                 public void onImageAvailable(ImageReader reader) {
                     try {
+ //                       Bitmap data = returnBitMap("http://");
+ //                       data.copyPixelsToBuffer();
+                        //image =  Toolkit.getDefaultToolkit().createImage(data);
+
+                        //image=data.getPixels();
+//                        while (processing) {
+//                            try {
+//                                reader.wait(300);
+//                            }
+//                            catch (InterruptedException e) {
+//                                e.printStackTrace();
+//                            }
+//                        }
 
                         image = reader.acquireNextImage();
                         if (processing) {
@@ -234,10 +281,40 @@ public class ClassifyCamera extends AppCompatActivity {
                             @Override
                             public void run() {
                                 tv.setText(predictedClass);
-                                processing = false;
                             }
                         });
-
+/*
+                        String[] list=predictedClass.split("\n");
+                        list[0]="以下都不是";
+                        new AlertDialog.Builder(ClassifyCamera.this)
+                            .setTitle("是否以下物品？")
+                            .setIcon(android.R.drawable.ic_dialog_info)
+                            .setSingleChoiceItems(list,//new String[] {"选项1","选项2","选项3","选项4"}
+                                0,
+                                new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface dialog, int which) {
+                                        dialog.dismiss();
+                                            processing = false;
+                                        }
+                                    }
+                                )
+                            .setNegativeButton("确定",
+                                new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface dialog, int which) {
+                                        dialog.dismiss();
+                                        processing = false;
+                                    }
+                                }
+                            )
+                            .show();
+                        //*/
+//                        Handler h1= new Handler();
+//                        h1.postDelayed(new Runnable(){
+//                            public void run() {
+//                                processing = false;
+//                            }
+//                        }, 10000);
+                        processing = false;
                     } finally {
                         if (image != null) {
                             image.close();

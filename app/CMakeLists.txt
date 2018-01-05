@@ -66,6 +66,7 @@ set_target_properties(
     ${CMAKE_CURRENT_LIST_DIR}/src/main/jniLibs/${ANDROID_ABI}/libCAFFE2_NNPACK.a
     )
 
+set(ocvlibs "${CMAKE_CURRENT_LIST_DIR}/src/main/jniLibs")
 # add_library(
 #     opencv_core
 #     STATIC
@@ -97,9 +98,19 @@ set_target_properties(
 #     PROPERTIES IMPORTED_LOCATION
 #     ${CMAKE_CURRENT_LIST_DIR}/src/main/jniLibs/${ANDROID_ABI}/libtegra_hal.a
 #     )
+add_library(
+    libopencv_java3 
+    SHARED
+    IMPORTED 
+    )
+set_target_properties(
+    libopencv_java3 
+    PROPERTIES IMPORTED_LOCATION 
+    "${ocvlibs}/${ANDROID_ABI}/libopencv_java3.so")
 
 include_directories( 
     src/main/cpp 
+    src/main/include
     #D:/Program Files/Android/OpenCV-android-sdk/sdk/native/jni/include
     )
 
@@ -110,6 +121,7 @@ find_library(
 
 target_link_libraries(
                        native-lib
+                       libopencv_java3
                        -Wl,--whole-archive
                     #    opencv_core
                     #    opencv_highgui

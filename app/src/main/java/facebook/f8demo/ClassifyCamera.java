@@ -47,6 +47,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import java.io.File;
+import android.os.Environment;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -80,6 +83,7 @@ public final class  ClassifyCamera extends AppCompatActivity {
     private AssetManager mgr;
     private boolean processing = false;
     private Image image = null;
+    private  int imgs_count = 0;
     private boolean run_HWC = false;
 
 
@@ -88,6 +92,8 @@ public final class  ClassifyCamera extends AppCompatActivity {
     }
 
     public native String classificationFromCaffe2(int h, int w, byte[] Y, byte[] U, byte[] V,
+                                                  int rowStride, int pixelStride, boolean r_hwc);
+    public native String classificationFromCaffe2t(int h, int w, byte[] Y, byte[] U, byte[] V,
                                                   int rowStride, int pixelStride, boolean r_hwc);
     public native void initCaffe2(AssetManager mgr);
     private class SetUpNeuralNetwork extends AsyncTask<Void, Void, Void> {
@@ -233,50 +239,90 @@ public final class  ClassifyCamera extends AppCompatActivity {
             assert texture != null;
             texture.setDefaultBufferSize(imageDimension.getWidth(), imageDimension.getHeight());
             Surface surface = new Surface(texture);
-            int width = 227;
-            int height = 227;
-            ImageReader reader = ImageReader.newInstance(width, height, ImageFormat.YUV_420_888, 4);
+//            int width = 227;
+//            int height = 227;
+            int width = 1024;
+            int height = 1024;
+
+            //ImageReader reader = ImageReader.newInstance(width, height, ImageFormat.YUV_420_888, 4);
+            ImageReader reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 5);
+
             ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
                 @Override
                 public void onImageAvailable(ImageReader reader) {
+
+                    //
+                    FileOutputStream fos = null;
+                    Bitmap bitmap = null;
                     try {
- //                       Bitmap data = returnBitMap("http://");
- //                       data.copyPixelsToBuffer();
-                        //image =  Toolkit.getDefaultToolkit().createImage(data);
+                       // Bitmap.CompressFormat.PNG
 
-                        //image=data.getPixels();
-//                        while (processing) {
-//                            try {
-//                                reader.wait(300);
-//                            }
-//                            catch (InterruptedException e) {
-//                                e.printStackTrace();
-//                            }
-//                        }
-
-                        image = reader.acquireNextImage();
+                        //image = reader.acquireNextImage();
+                        image = reader.acquireLatestImage();
                         if (processing) {
                             image.close();
                             return;
                         }
                         processing = true;
-                        int w = image.getWidth();
-                        int h = image.getHeight();
-                        ByteBuffer Ybuffer = image.getPlanes()[0].getBuffer();
-                        ByteBuffer Ubuffer = image.getPlanes()[1].getBuffer();
-                        ByteBuffer Vbuffer = image.getPlanes()[2].getBuffer();
-                        // TODO: use these for proper image processing on different formats.
-                        int rowStride = image.getPlanes()[1].getRowStride();
-                        int pixelStride = image.getPlanes()[1].getPixelStride();
-                        byte[] Y = new byte[Ybuffer.capacity()];
-                        byte[] U = new byte[Ubuffer.capacity()];
-                        byte[] V = new byte[Vbuffer.capacity()];
-                        Ybuffer.get(Y);
-                        Ubuffer.get(U);
-                        Vbuffer.get(V);
+                        if (true) {
+                            Image.Plane[] planes = image.getPlanes();
+                            if (planes[0].getBuffer() == null) {
+                                processing = false;
+                                return;
+                            }
+                            int width = image.getWidth();
+                            int height = image.getHeight();
+                            int pixelStride = planes[0].getPixelStride();
+                            int rowStride = planes[0].getRowStride();
+                            int rowPadding = rowStride - pixelStride * width;
+                            byte[] newData = new byte[width * height * 4];
 
-                        predictedClass = classificationFromCaffe2(h, w, Y, U, V,
-                                rowStride, pixelStride, run_HWC);
+                            int offset = 0;
+                            //Bitmap createBitmap(DisplayMetrics display, int width, int height, Bitmap.Config config)
+                            //bitmap = Bitmap.createBitmap(metrics,width, height, Bitmap.Config.ARGB_8888);
+                            bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                            ByteBuffer buffer = planes[0].getBuffer();
+                            for (int i = 0; i < height-1; ++i) {
+                                for (int j = 0; j < width; ++j) {
+                                    int pixel = 0;
+                                    pixel |= (buffer.get(offset) & 0xff) << 16;     // R
+                                    pixel |= (buffer.get(offset + 1) & 0xff) << 8;  // G
+                                    pixel |= (buffer.get(offset + 2) & 0xff);       // B
+                                    pixel |= (buffer.get(offset + 3) & 0xff) << 24; // A
+                                    bitmap.setPixel(j, i, pixel);
+                                    offset += pixelStride;
+                                }
+                                offset += rowPadding;
+                            }
+                            String name = "/111111/test/" + imgs_count + ".png";
+                            imgs_count++;
+                            File file = new File(Environment.getExternalStorageDirectory(), name);
+                            fos = new FileOutputStream(file);
+                            //bitmap.compress(Bitmap.CompressFormat.JPEG, 100, fos);
+                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
+                            //Log.i(TAG, "image saved in" + Environment.getExternalStorageDirectory() + name);
+//                            predictedClass = classificationFromCaffe2t(h, w, Y, U, V,
+//                                    rowStride, pixelStride, run_HWC);
+                        }
+                        if(!true){
+                            int w = image.getWidth();
+                            int h = image.getHeight();
+                            ByteBuffer Ybuffer = image.getPlanes()[0].getBuffer();
+                            ByteBuffer Ubuffer = image.getPlanes()[1].getBuffer();
+                            ByteBuffer Vbuffer = image.getPlanes()[2].getBuffer();
+                            // TODO: use these for proper image processing on different formats.
+                            int rowStride = image.getPlanes()[1].getRowStride();
+                            int pixelStride = image.getPlanes()[1].getPixelStride();
+                            byte[] Y = new byte[Ybuffer.capacity()];
+                            byte[] U = new byte[Ubuffer.capacity()];
+                            byte[] V = new byte[Vbuffer.capacity()];
+                            Ybuffer.get(Y);
+                            Ubuffer.get(U);
+                            Vbuffer.get(V);
+
+                            predictedClass = classificationFromCaffe2(h, w, Y, U, V, rowStride, pixelStride, run_HWC);
+                            //predictedClass = classificationFromCaffe2t(h, w, Y, U, V, rowStride, pixelStride, run_HWC);
+                        }
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
@@ -314,11 +360,23 @@ public final class  ClassifyCamera extends AppCompatActivity {
 //                                processing = false;
 //                            }
 //                        }, 10000);
-                        processing = false;
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     } finally {
                         if (image != null) {
                             image.close();
                         }
+                        if (null != fos) {
+                            try {
+                                fos.close();
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                        if (null != bitmap) {
+                            bitmap.recycle();
+                        }
+                        processing = false;
                     }
                 }
             };

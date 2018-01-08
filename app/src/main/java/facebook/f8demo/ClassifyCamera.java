@@ -68,56 +68,21 @@ import android.widget.ImageView;
 import android.content.DialogInterface;
 import android.app.AlertDialog;
 import android.util.SparseIntArray;
+import android.content.res.Configuration; 
 
 
 import android.util.AttributeSet;
 
 import static android.view.View.SYSTEM_UI_FLAG_IMMERSIVE;
 
-class AutoFitTextureView extends TextureView
-{
-    private int mRatioWidth = 0;
-    private int mRatioHeight = 0;
-    public AutoFitTextureView(Context context, AttributeSet attrs)
-    {
-        super(context, attrs);
-    }
-    public void setAspectRatio(int width, int height)
-    {
-        mRatioWidth = width;
-        mRatioHeight = height;
-        requestLayout();
-    }
-    @Override
-    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec)
-    {
-        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-        int width = MeasureSpec.getSize(widthMeasureSpec);
-        int height = MeasureSpec.getSize(heightMeasureSpec);
-        if (0 == mRatioWidth || 0 == mRatioHeight)
-        {
-            setMeasuredDimension(width, height);
-        }
-        else
-        {
-            if (width < height * mRatioWidth / mRatioHeight)
-            {
-                setMeasuredDimension(width, width * mRatioHeight / mRatioWidth);
-            }
-            else
-            {
-                setMeasuredDimension(height * mRatioWidth / mRatioHeight, height);
-            }
-        }
-    }
-}
+
 
 public final class  ClassifyCamera extends AppCompatActivity  implements View.OnClickListener{
     private static final String TAG = "F8DEMO";
     private static final int REQUEST_CAMERA_PERMISSION = 200;
 
-    private TextureView textureView;
-   // private AutoFitTextureView textureView;
+    //private TextureView textureView;
+    private AutoFitTextureView textureView;
     private String cameraId;
     protected CameraDevice cameraDevice;
     protected CameraCaptureSession cameraCaptureSessions;
@@ -136,6 +101,7 @@ public final class  ClassifyCamera extends AppCompatActivity  implements View.On
     
     private ImageReader imageReader;
     private  Size largestImgSize;
+    private Size previewSize;    // 预览尺寸
     private CaptureRequest previewRequest;  // 定义用于预览照片的捕获请求
     private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
     static
@@ -181,9 +147,8 @@ public final class  ClassifyCamera extends AppCompatActivity  implements View.On
         decorView.setSystemUiVisibility(uiOptions);
 
         setContentView(R.layout.activity_classify_camera);
-
-        textureView = (TextureView) findViewById(R.id.textureView);
-        //textureView = (AutoFitTextureView) findViewById(R.id.textureView);
+        //textureView = (TextureView) findViewById(R.id.textureView);
+        textureView = (AutoFitTextureView) findViewById(R.id.textureView);
         textureView.setSystemUiVisibility(SYSTEM_UI_FLAG_IMMERSIVE);
         final GestureDetector gestureDetector = new GestureDetector(this.getApplicationContext(),
                 new GestureDetector.SimpleOnGestureListener(){
@@ -441,25 +406,6 @@ public final class  ClassifyCamera extends AppCompatActivity  implements View.On
                             bitmap.compress(Bitmap.CompressFormat.PNG, 0, out);
                             predictedClass = classificationFromCaffe2t(out.toByteArray());
                         }
-                        if(!true){
-                            int w = image.getWidth();
-                            int h = image.getHeight();
-                            ByteBuffer Ybuffer = image.getPlanes()[0].getBuffer();
-                            ByteBuffer Ubuffer = image.getPlanes()[1].getBuffer();
-                            ByteBuffer Vbuffer = image.getPlanes()[2].getBuffer();
-                            // TODO: use these for proper image processing on different formats.
-                            int rowStride = image.getPlanes()[1].getRowStride();
-                            int pixelStride = image.getPlanes()[1].getPixelStride();
-                            byte[] Y = new byte[Ybuffer.capacity()];
-                            byte[] U = new byte[Ubuffer.capacity()];
-                            byte[] V = new byte[Vbuffer.capacity()];
-                            Ybuffer.get(Y);
-                            Ubuffer.get(U);
-                            Vbuffer.get(V);
-
-                            predictedClass = classificationFromCaffe2(h, w, Y, U, V, rowStride, pixelStride, run_HWC);
-                            //predictedClass = classificationFromCaffe2t(h, w, Y, U, V, rowStride, pixelStride, run_HWC);
-                        }
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
@@ -541,10 +487,55 @@ public final class  ClassifyCamera extends AppCompatActivity  implements View.On
                     Toast.makeText(ClassifyCamera.this, "Configuration change", Toast.LENGTH_SHORT).show();
                 }
             }, null);
+
+            CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+                // 获取指定摄像头的特性
+            CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+                // 获取摄像头支持的配置属性
+            StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            Size largest = Collections.max(Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)),new CompareSizesByArea());
+            // 获取最佳的预览尺寸
+            previewSize = chooseOptimalSize(map.getOutputSizes( SurfaceTexture.class), width, height, largest);
+            // 根据选中的预览尺寸来调整预览组件（TextureView）的长宽比
+            int orientation = getResources().getConfiguration().orientation;
+            if (orientation == Configuration.ORIENTATION_LANDSCAPE)
+            {
+                textureView.setAspectRatio(previewSize.getWidth(), previewSize.getHeight());
+            }
+            else
+            {
+                textureView.setAspectRatio(previewSize.getHeight(),previewSize.getWidth());
+            }
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
     }
+    private static Size chooseOptimalSize(Size[] choices, int width, int height, Size aspectRatio)
+    {
+        // 收集摄像头支持的大过预览Surface的分辨率
+        List<Size> bigEnough = new ArrayList<>();
+        int w = aspectRatio.getWidth();
+        int h = aspectRatio.getHeight();
+        for (Size option : choices)
+        {
+            if (option.getHeight() == option.getWidth() * h / w &&
+                option.getWidth() >= width && option.getHeight() >= height)
+            {
+                bigEnough.add(option);
+            }
+        }
+        // 如果找到多个预览尺寸，获取其中面积最小的
+        if (bigEnough.size() > 0)
+        {
+            return Collections.min(bigEnough, new CompareSizesByArea());
+        }
+        else
+        {
+            System.out.println("找不到合适的预览尺寸！！！");
+            return choices[0];
+        }
+    }
+
     private void openCamera() {
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         try {

@@ -67,18 +67,61 @@ import android.os.Bundle;
 import android.widget.ImageView;
 import android.content.DialogInterface;
 import android.app.AlertDialog;
+import android.util.SparseIntArray;
+
+
+import android.util.AttributeSet;
 
 import static android.view.View.SYSTEM_UI_FLAG_IMMERSIVE;
 
-public final class  ClassifyCamera extends AppCompatActivity {
+class AutoFitTextureView extends TextureView
+{
+    private int mRatioWidth = 0;
+    private int mRatioHeight = 0;
+    public AutoFitTextureView(Context context, AttributeSet attrs)
+    {
+        super(context, attrs);
+    }
+    public void setAspectRatio(int width, int height)
+    {
+        mRatioWidth = width;
+        mRatioHeight = height;
+        requestLayout();
+    }
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec)
+    {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        int width = MeasureSpec.getSize(widthMeasureSpec);
+        int height = MeasureSpec.getSize(heightMeasureSpec);
+        if (0 == mRatioWidth || 0 == mRatioHeight)
+        {
+            setMeasuredDimension(width, height);
+        }
+        else
+        {
+            if (width < height * mRatioWidth / mRatioHeight)
+            {
+                setMeasuredDimension(width, width * mRatioHeight / mRatioWidth);
+            }
+            else
+            {
+                setMeasuredDimension(height * mRatioWidth / mRatioHeight, height);
+            }
+        }
+    }
+}
+
+public final class  ClassifyCamera extends AppCompatActivity  implements View.OnClickListener{
     private static final String TAG = "F8DEMO";
     private static final int REQUEST_CAMERA_PERMISSION = 200;
 
     private TextureView textureView;
+   // private AutoFitTextureView textureView;
     private String cameraId;
     protected CameraDevice cameraDevice;
     protected CameraCaptureSession cameraCaptureSessions;
-    protected CaptureRequest.Builder captureRequestBuilder;
+    protected CaptureRequest.Builder previewRequestBuilder;
     private Size imageDimension;
     private Handler mBackgroundHandler;
     private HandlerThread mBackgroundThread;
@@ -90,8 +133,18 @@ public final class  ClassifyCamera extends AppCompatActivity {
     private  int imgs_count = 0;
     private boolean run_HWC = false;
 
+    
+    private ImageReader imageReader;
     private  Size largestImgSize;
-
+    private CaptureRequest previewRequest;  // 定义用于预览照片的捕获请求
+    private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
+    static
+    {
+        ORIENTATIONS.append(Surface.ROTATION_0, 90);
+        ORIENTATIONS.append(Surface.ROTATION_90, 0);
+        ORIENTATIONS.append(Surface.ROTATION_180, 270);
+        ORIENTATIONS.append(Surface.ROTATION_270, 180);
+    }
 
     static {
         System.loadLibrary("native-lib");
@@ -130,6 +183,7 @@ public final class  ClassifyCamera extends AppCompatActivity {
         setContentView(R.layout.activity_classify_camera);
 
         textureView = (TextureView) findViewById(R.id.textureView);
+        //textureView = (AutoFitTextureView) findViewById(R.id.textureView);
         textureView.setSystemUiVisibility(SYSTEM_UI_FLAG_IMMERSIVE);
         final GestureDetector gestureDetector = new GestureDetector(this.getApplicationContext(),
                 new GestureDetector.SimpleOnGestureListener(){
@@ -166,6 +220,63 @@ public final class  ClassifyCamera extends AppCompatActivity {
         textureView.setSurfaceTextureListener(textureListener);
         tv = (TextView) findViewById(R.id.sample_text);
 
+        //captureButton
+        findViewById(R.id.captureButton).setOnClickListener(this);
+        findViewById(R.id.classificationButton).setOnClickListener(this);
+    }
+    @Override
+    public void onClick(View view)
+    {
+        if(view.getId() ==R.id.captureButton){
+        captureStillPicture();
+        }else if(view.getId() ==R.id.classificationButton){
+
+        }
+    }
+    private void captureStillPicture()
+    {
+        try {
+            if (cameraDevice == null)  {
+                return;
+            }
+            // 创建作为拍照的CaptureRequest.Builder
+            final CaptureRequest.Builder captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            // 将imageReader的surface作为CaptureRequest.Builder的目标
+            captureRequestBuilder.addTarget(imageReader.getSurface());
+            // 设置自动对焦模式
+            captureRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+            // 设置自动曝光模式
+            captureRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH);
+            // 获取设备方向
+            int rotation = getWindowManager().getDefaultDisplay().getRotation();
+            // 根据设备方向计算设置照片的方向
+            captureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(rotation));
+            // 停止连续取景
+            cameraCaptureSessions.stopRepeating();
+            // 捕获静态图像
+            cameraCaptureSessions.capture(captureRequestBuilder.build(),
+                new CameraCaptureSession.CaptureCallback() {
+                    // 拍照完成时激发该方法
+                    @Override
+                    public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result)
+                    {
+                        try{
+                            // 重设自动对焦模式
+                            previewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL);
+                            // 设置自动曝光模式
+                            previewRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH);
+                            // 打开连续取景模式
+                            cameraCaptureSessions.setRepeatingRequest(previewRequest, null, null);
+                        } catch (CameraAccessException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }, null);
+        }
+        catch (CameraAccessException e)
+        {
+            e.printStackTrace();
+        }
     }
 
     TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
@@ -258,23 +369,22 @@ public final class  ClassifyCamera extends AppCompatActivity {
 //            Size largest = Collections.max( Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)), new CompareSizesByArea());
             // 创建一个ImageReader对象，用于获取摄像头的图像数据
             //ImageReader reader = ImageReader.newInstance(largestImgSize.getWidth(), largestImgSize.getHeight(), PixelFormat.RGBA_8888, 5);
-            ImageReader reader = ImageReader.newInstance(imageDimension.getWidth(), imageDimension.getHeight(), PixelFormat.RGBA_8888, 5);
+            imageReader = ImageReader.newInstance(imageDimension.getWidth(), imageDimension.getHeight(), PixelFormat.RGBA_8888, 5);
 
-            //ImageReader reader = ImageReader.newInstance(width, height, ImageFormat.YUV_420_888, 4);
-            //ImageReader reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 5);
+            //ImageReader imageReader = ImageReader.newInstance(width, height, ImageFormat.YUV_420_888, 4);
+            //ImageReader imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 5);
 
             ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
                 @Override
                 public void onImageAvailable(ImageReader reader) {
 
                     //
-                    FileOutputStream fos = null;
                     Bitmap bitmap = null;
                     try {
                        // Bitmap.CompressFormat.PNG
 
-                        //image = reader.acquireNextImage();
-                        image = reader.acquireLatestImage();
+                        image = reader.acquireNextImage();
+                        //image = reader.acquireLatestImage();
                         if (processing) {
                             image.close();
                             return;
@@ -315,8 +425,16 @@ public final class  ClassifyCamera extends AppCompatActivity {
                             imgs_count++;
                             File file = new File(Environment.getExternalStorageDirectory(), name);
                             fos = new FileOutputStream(file);
+                            FileOutputStream fos = null;
                             bitmap.compress(Bitmap.CompressFormat.PNG, 0, fos);
                             //Log.i(TAG, "image saved in" + Environment.getExternalStorageDirectory() + name);
+                            if (null != fos) {
+                                try {
+                                    fos.close();
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
+                            }
                             //*/
 
                             ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -385,13 +503,6 @@ public final class  ClassifyCamera extends AppCompatActivity {
                         if (image != null) {
                             image.close();
                         }
-                        if (null != fos) {
-                            try {
-                                fos.close();
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                        }
                         if (null != bitmap) {
                             bitmap.recycle();
                         }
@@ -399,19 +510,31 @@ public final class  ClassifyCamera extends AppCompatActivity {
                     }
                 }
             };
-            reader.setOnImageAvailableListener(readerListener, mBackgroundHandler);
-            captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            captureRequestBuilder.addTarget(surface);
-            captureRequestBuilder.addTarget(reader.getSurface());
+            imageReader.setOnImageAvailableListener(readerListener, null);//mBackgroundHandler);
+            previewRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            previewRequestBuilder.addTarget(surface);
+            //previewRequestBuilder.addTarget(imageReader.getSurface());
 
-            cameraDevice.createCaptureSession(Arrays.asList(surface, reader.getSurface()), new CameraCaptureSession.StateCallback(){
+            cameraDevice.createCaptureSession(Arrays.asList(surface, imageReader.getSurface()), new CameraCaptureSession.StateCallback(){
                 @Override
                 public void onConfigured(@NonNull CameraCaptureSession cameraCaptureSession) {
                     if (null == cameraDevice) {
                         return;
                     }
                     cameraCaptureSessions = cameraCaptureSession;
-                    updatePreview();
+                    try {
+                        // 设置自动对焦模式
+                        previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                        // 设置自动曝光模式
+                        previewRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE,  CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH);
+                        
+                        //previewRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
+                        
+                        previewRequest = previewRequestBuilder.build(); // 开始显示相机预览
+                        cameraCaptureSessions.setRepeatingRequest(previewRequest, null,null);// mBackgroundHandler);
+                    } catch (CameraAccessException e) {
+                        e.printStackTrace();
+                    }
                 }
                 @Override
                 public void onConfigureFailed(@NonNull CameraCaptureSession cameraCaptureSession) {
@@ -439,18 +562,6 @@ public final class  ClassifyCamera extends AppCompatActivity {
                 return;
             }
             manager.openCamera(cameraId, stateCallback, null);
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
-        }
-    }
-
-    protected void updatePreview() {
-        if(null == cameraDevice) {
-            return;
-        }
-        captureRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
-        try {
-            cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, mBackgroundHandler);
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }

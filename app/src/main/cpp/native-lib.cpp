@@ -81,25 +81,29 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_facebook_f8demo_ClassifyCamera_classificationFromCaffe2t(
     JNIEnv *env,
     jobject /* this */,
-    jint h, jint w, jbyteArray Y, jbyteArray U, jbyteArray V,
-    jint rowStride, jint pixelStride,
-    jboolean infer_HWC)
+    jbyteArray png)
 {
     if (!_predictor)
     {
         return env->NewStringUTF("Loading...");
     }
 
-    //
-    //env->GetDirectBufferAddress()
+    //先获取文件流
+    jsize png_len = env->GetArrayLength(png);
+    assert(png_len > 0);
+    jbyte *png_data = env->GetByteArrayElements(png, 0);
 
-    ///////////////////////////////////
-    //先获取文件名
-    std::ostringstream stringStream;
+    //全局变量
+    std::ostringstream stringStream;  //存返回值的中间值
     cv::Mat bgr_img;
-    void *dataBuf=nullptr;
+    std::vector<int> compression_params;
+    compression_params.push_back(CV_IMWRITE_PNG_COMPRESSION);   //PNG格式图片的压缩级别
+    compression_params.push_back(0);
+    std::string   imgFileSavePrePath="/sdcard/1test/";          //SD卡中的临时目录
     try {
-        const char *filename =  "imgs/ww.png";  //注意：android不支持jpg格式的图片处理。主要是opencv的锅？
+        /*
+        从assets目录下读文件
+        const char *filename =  "imgs/test-resize.png";  //注意：android不支持jpg格式的图片处理。主要是opencv的锅？
         assert(g_mgr != nullptr);
         AAsset *asset = AAssetManager_open(g_mgr, filename, AASSET_MODE_BUFFER);
         assert(asset != nullptr);
@@ -108,15 +112,16 @@ Java_facebook_f8demo_ClassifyCamera_classificationFromCaffe2t(
         std::vector<char> buffer(len,0);
         //assert(AAsset_seek(asset,0,SEEK_SET)>=0);
         assert(AAsset_read(asset,&buffer[0], len)>=0);
-
-        bgr_img = cv::imdecode(cv::Mat(buffer), CV_LOAD_IMAGE_COLOR);
+        bgr_img = cv::imdecode(cv::Mat(buffer), CV_LOAD_IMAGE_COLOR);   //从文件流中读取图片，转成Mat格式
         AAsset_close(asset);
-
-        // 用opencv的方式读入文件
-        //cv::Mat bgr_img = cv::imdecode(filename, -1);
-
-        int height =  bgr_img.rows;
-        int width = bgr_img.cols;
+        //*/
+        //*
+        //从文件流中读取图片，转成Mat格式
+        std::vector<char> buffer(png_data,png_data+png_len);
+        bgr_img = cv::imdecode(cv::Mat(buffer), CV_LOAD_IMAGE_COLOR);
+        //*/
+        // 用opencv的方式直接读入文件
+        // bgr_img = cv::imread("/sdcard/1test/imgs/test.png", CV_LOAD_IMAGE_COLOR);
 
         // 输入图像大小
         const int predHeight = 224; //256;
@@ -124,38 +129,33 @@ Java_facebook_f8demo_ClassifyCamera_classificationFromCaffe2t(
         const int crops = 1;		// crops等于1表示batch的数量为1
         const int channels = 3;		// 通道数为3，表示BGR，为1表示灰度图
         const int size = predHeight * predWidth;
-        // 初始化网络的输入，因为可能要做batch操作，所以分配一段连续的存储空间
-        std::vector<float> inputPlanar(crops * channels * predHeight * predWidth);
 
-	std::vector<int> compression_params;
-	compression_params.push_back(CV_IMWRITE_JPEG_QUALITY); //PNG格式图片的压缩级别
-	compression_params.push_back(30);
-    std::string   imgFileSavePrePath="/sdcard/111111/";
-        //std::cout << "before resizing, bgr_img.cols=" << bgr_img.cols << ", bgr_img.rows=" << bgr_img.rows << std::endl;
         // resize成想要的输入大小
-	{
-		int height = bgr_img.rows;
-		int width = bgr_img.cols;
-		const double hscale = ((double)height) / predHeight; // 计算缩放比例
-		const double wscale = ((double)width) / predWidth;
-		const double scale = hscale < wscale ? hscale : wscale;
-		const int newH = predHeight * scale;
-		const int newW = predWidth * scale;
-		cv::Range Rh((height - newH) / 2, (height + newH) / 2);
-		cv::Range Rw((width - newW) / 2, (width + newW) / 2);
-		bgr_img = cv::Mat(bgr_img, Rh, Rw);
-        //cv::resize(bgr_img, bgr_img, dsize);
-		cv::imwrite(imgFileSavePrePath+"imgs/ww-crop.jpg", bgr_img, compression_params);
-	}
-	cv::resize(bgr_img, bgr_img, cv::Size{predWidth, predHeight}, 0, 0, cv::INTER_AREA);
-	cv::imwrite(imgFileSavePrePath+"imgs/ww-resize.jpg", bgr_img, compression_params);
-       // std::cout << "after resizing, bgr_img.cols=" << bgr_img.cols << ", bgr_img.rows=" << bgr_img.rows << std::endl;
-        // Scale down the input to a reasonable predictor size.
+        if(true){
+            int height = bgr_img.rows;
+            int width = bgr_img.cols;
+            const double hscale = ((double)height) / predHeight; // 计算缩放比例
+            const double wscale = ((double)width) / predWidth;
+            const double scale = hscale < wscale ? hscale : wscale;
+            const int newH = predHeight * scale;
+            const int newW = predWidth * scale;
+            cv::Range Rh( height > newH ? (height - newH)/2 : 0, height > newH ? (height + newH)/2 : height);
+            cv::Range Rw( width > newW ? (width - newW)/2 : 0, width > newW ? (width + newW)/2 : width);
+            bgr_img = cv::Mat(bgr_img, Rh, Rw);
+            //cv::imwrite(imgFileSavePrePath+"imgs/test-crop.png", bgr_img, compression_params);
+        }
+
+        //cv::GaussianBlur(bgr_img, bgr_img, cv::Size(3, 3), 0, 0, cv::BORDER_DEFAULT);     //高斯滤波降噪
+        
+        cv::resize(bgr_img, bgr_img, cv::Size{predWidth, predHeight}, 0, 0, cv::INTER_AREA); //缩放到最终大小，否则会导致caffe2异常
+
         // 这里是将图像复制到连续的存储空间内，用于网络的输入，因为是BGR三通道，所以有三个赋值
         // 注意imread读入的图像格式是unsigned char，如果你的网络输入要求是float的话，下面的操作就不对了。
+
+        // 初始化网络的输入，因为可能要做batch操作，所以分配一段连续的存储空间
+        std::vector<float> inputPlanar(crops * channels * predHeight * predWidth);
         for (auto i = 0; i < predHeight; i++)
         {
-            //printf("+\n");
             for (auto j = 0; j < predWidth; j++)
             {
                 //opencv存储结构是RGB作为一个整体存的，caffe的存储结构是R、G、B分别作为一个通道，三者组成一个张量
@@ -164,82 +164,77 @@ Java_facebook_f8demo_ClassifyCamera_classificationFromCaffe2t(
                 inputPlanar[i * predWidth + j + 2 * size] = (float)bgr_img.data[(i * predWidth + j) * 3 + 2];
             }
         } 
-    /////////////////////////////////////
 
+        //一下是caffe2的处理过程
+        caffe2::TensorCPU input;
+        input.Resize(std::vector<int>({crops, channels, predHeight, predWidth}));
+        //input.Resize(std::vector<int>({1, IMG_C, IMG_H, IMG_W}));
+        //memcpy(input.mutable_data<float>(), input_data, IMG_H * IMG_W * IMG_C * sizeof(float));
+        input.ShareExternalPointer(inputPlanar.data());
 
-    caffe2::TensorCPU input;
-	input.Resize(std::vector<int>({crops, channels, predHeight, predWidth}));
-    //input.Resize(std::vector<int>({1, IMG_C, IMG_H, IMG_W}));
-    //memcpy(input.mutable_data<float>(), input_data, IMG_H * IMG_W * IMG_C * sizeof(float));
-    input.ShareExternalPointer(inputPlanar.data());
-    caffe2::Predictor::TensorVector input_vec{&input};
-    caffe2::Predictor::TensorVector output_vec;
-    caffe2::Timer t;
-    t.Start();
-    _predictor->run(input_vec, &output_vec);
+        caffe2::Predictor::TensorVector input_vec{&input};
+        caffe2::Predictor::TensorVector output_vec;
+        caffe2::Timer t;
+        t.Start();
+        _predictor->run(input_vec, &output_vec);
 
-    float fps = 1000 / t.MilliSeconds();
-    total_fps += fps;
-    avg_fps = total_fps / iters_fps;
-    total_fps -= avg_fps;
+        float fps = 1000 / t.MilliSeconds();
+        total_fps += fps;
+        avg_fps = total_fps / iters_fps;
+        total_fps -= avg_fps;
 
-    constexpr int k = 10;
-    //float max[k] = {0};                 //最小值放在 max[0] ，其他无序
-    std::pair<int, float> result[k] ; //={{0,0.0}}; //最小值放在 result[0] ，其他无序
-    for (auto i = 0; i < k; ++i){
-        result[i]=std::make_pair(0, 0.0);
-    }
-    // Find the top-k results manually.
-    for (auto output : output_vec)
-    {
-        for (auto i = 0; i < output->size(); ++i)
+        constexpr int k = 5;
+        std::pair<int, float> result[k] ={{0,0.0}}; //最小值放在 result[0] ，其他无序
+        // for (auto i = 0; i < k; ++i){
+        //     result[i]=std::make_pair(0, 0.0);
+        // }
+        for (auto output : output_vec)  //注意： 如果一个batch(批次)有多个图片一起处理，则会有多个结果！
         {
-            auto val = output->template data<float>()[i];
-            if (val < result[0].second)
-                continue;
-            result[0] = std::make_pair(i, val);
-            auto minIndex = 0;
-            for (auto j = 1; j < k; ++j)
+            for (auto i = 0; i < output->size(); ++i)  //一张图片的结果
             {
-                if (result[minIndex].second > result[j].second)
+                auto val = output->template data<float>()[i];  //取出结果。每一个标签都会有一个归一化的数值，就是这个结果
+                if (val < result[0].second)   ////最小值放在 result[0] ，其他无序
+                    continue;
+                result[0] = std::make_pair(i, val);
+                auto minIndex = 0;
+                for (auto j = 1; j < k; ++j)
                 {
-                    minIndex = j;
+                    if (result[minIndex].second > result[j].second)
+                    {
+                        minIndex = j;
+                    }
+                }
+                if (minIndex != 0)
+                {
+                    result[0] = result[minIndex];
+                    result[minIndex] = std::make_pair(i, val);
                 }
             }
-            if (minIndex != 0)
-            {
-                result[0] = result[minIndex];
-                result[minIndex] = std::make_pair(i, val);
-            }
         }
-    }
-    std::sort(&result[0], &result[k-1], [](std::pair<int, float> n1, std::pair<int, float> n2) -> int {
-		return n1.second > n2.second;
-	});
-    //std::ostringstream stringStream;
-    stringStream << avg_fps << " FPS\n";
+        //给结果排个序
+        std::sort(&result[0], &result[k], [](std::pair<int, float> n1, std::pair<int, float> n2) -> int {
+            return n1.second > n2.second;
+        });
+        std::ostringstream nameStream;  //结果图片存下
+        stringStream << avg_fps << " FPS\n";
+        for (auto j = 0; j < k; ++j)
+        {
+            stringStream << j << ": " << imagenet_classes[result[j].first] << " - " << result[j].second *100 << "%\n";
+            nameStream << imagenet_classes[result[j].first] << ":" << result[j].second *100<<"-";
+        }
 
-    for (auto j = 0; j < k; ++j)
-    {
-        stringStream << j << ": " << imagenet_classes[result[j].first] << " - " << result[j].second *100 << "%\n";
-    }
-    if (dataBuf != nullptr)
-        delete [] dataBuf;
-    return env->NewStringUTF(stringStream.str().c_str());
+        cv::imwrite(imgFileSavePrePath+"imgs/"+nameStream.str()+".png", bgr_img, compression_params);
+        return env->NewStringUTF(stringStream.str().c_str());
 
     }
     catch(std::exception& e)
     {
         stringStream<<"exception:"<<e.what()<<"\n";
-        if (dataBuf != nullptr)
-            delete [] dataBuf;
         return env->NewStringUTF(stringStream.str().c_str());
     }
     catch(...)
     {
         stringStream<<"exception..."<<std::endl;
-        if (dataBuf != nullptr)
-            delete [] dataBuf;
         return env->NewStringUTF(stringStream.str().c_str());
     }
 }
@@ -373,7 +368,7 @@ Java_facebook_f8demo_ClassifyCamera_classificationFromCaffe2(
             }
         }
     }
-    std::sort(&result[0], &result[k-1], [](std::pair<int, float> n1, std::pair<int, float> n2) -> int {
+    std::sort(&result[0], &result[k], [](std::pair<int, float> n1, std::pair<int, float> n2) -> int {
 		return n1.second > n2.second;
 	});
     std::ostringstream stringStream;

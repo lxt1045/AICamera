@@ -55,6 +55,10 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.io.ByteArrayOutputStream;
+import java.util.Collections;
+import java.util.Comparator;
+
 
 import android.app.Activity;
 import android.graphics.Bitmap;
@@ -86,6 +90,8 @@ public final class  ClassifyCamera extends AppCompatActivity {
     private  int imgs_count = 0;
     private boolean run_HWC = false;
 
+    private  Size largestImgSize;
+
 
     static {
         System.loadLibrary("native-lib");
@@ -93,8 +99,7 @@ public final class  ClassifyCamera extends AppCompatActivity {
 
     public native String classificationFromCaffe2(int h, int w, byte[] Y, byte[] U, byte[] V,
                                                   int rowStride, int pixelStride, boolean r_hwc);
-    public native String classificationFromCaffe2t(int h, int w, byte[] Y, byte[] U, byte[] V,
-                                                  int rowStride, int pixelStride, boolean r_hwc);
+    public native String classificationFromCaffe2t(byte[] Png);
     public native void initCaffe2(AssetManager mgr);
     private class SetUpNeuralNetwork extends AsyncTask<Void, Void, Void> {
         @Override
@@ -241,11 +246,22 @@ public final class  ClassifyCamera extends AppCompatActivity {
             Surface surface = new Surface(texture);
 //            int width = 227;
 //            int height = 227;
-            int width = 1024;
-            int height = 1024;
+            int width = 448;
+            int height = 448;
+
+
+//            // 获取指定摄像头的特性
+//            CameraCharacteristics characteristics = manager.getCameraCharacteristics(mCameraId);
+//            // 获取摄像头支持的配置属性
+//            StreamConfigurationMap map = characteristics.get( CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+//            // 获取摄像头支持的最大尺寸
+//            Size largest = Collections.max( Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)), new CompareSizesByArea());
+            // 创建一个ImageReader对象，用于获取摄像头的图像数据
+            //ImageReader reader = ImageReader.newInstance(largestImgSize.getWidth(), largestImgSize.getHeight(), PixelFormat.RGBA_8888, 5);
+            ImageReader reader = ImageReader.newInstance(imageDimension.getWidth(), imageDimension.getHeight(), PixelFormat.RGBA_8888, 5);
 
             //ImageReader reader = ImageReader.newInstance(width, height, ImageFormat.YUV_420_888, 4);
-            ImageReader reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 5);
+            //ImageReader reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 5);
 
             ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
                 @Override
@@ -294,15 +310,18 @@ public final class  ClassifyCamera extends AppCompatActivity {
                                 }
                                 offset += rowPadding;
                             }
-                            String name = "/111111/test/" + imgs_count + ".png";
+                            /*
+                            String name = "/1test/imgs_big/"+ imgs_count + ".png";
                             imgs_count++;
                             File file = new File(Environment.getExternalStorageDirectory(), name);
                             fos = new FileOutputStream(file);
-                            //bitmap.compress(Bitmap.CompressFormat.JPEG, 100, fos);
-                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
+                            bitmap.compress(Bitmap.CompressFormat.PNG, 0, fos);
                             //Log.i(TAG, "image saved in" + Environment.getExternalStorageDirectory() + name);
-//                            predictedClass = classificationFromCaffe2t(h, w, Y, U, V,
-//                                    rowStride, pixelStride, run_HWC);
+                            //*/
+
+                            ByteArrayOutputStream out = new ByteArrayOutputStream();
+                            bitmap.compress(Bitmap.CompressFormat.PNG, 0, out);
+                            predictedClass = classificationFromCaffe2t(out.toByteArray());
                         }
                         if(!true){
                             int w = image.getWidth();
@@ -409,6 +428,10 @@ public final class  ClassifyCamera extends AppCompatActivity {
             cameraId = manager.getCameraIdList()[0];
             CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
             StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            {
+                // 获取摄像头支持的最大尺寸
+                largestImgSize= Collections.max( Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)), new CompareSizesByArea());
+            }
             assert map != null;
             imageDimension = map.getOutputSizes(SurfaceTexture.class)[0];
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
@@ -464,5 +487,17 @@ public final class  ClassifyCamera extends AppCompatActivity {
         closeCamera();
         stopBackgroundThread();
         super.onPause();
+    }
+
+    // 为Size定义一个比较器Comparator
+    static class CompareSizesByArea implements Comparator<Size>
+    {
+        @Override
+        public int compare(Size lhs, Size rhs)
+        {
+            // 强转为long保证不会发生溢出
+            return Long.signum((long) lhs.getWidth() * lhs.getHeight() -
+                    (long) rhs.getWidth() * rhs.getHeight());
+        }
     }
 }

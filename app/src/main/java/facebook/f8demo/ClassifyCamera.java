@@ -320,24 +320,14 @@ public final class  ClassifyCamera extends AppCompatActivity  implements View.On
             assert texture != null;
             texture.setDefaultBufferSize(imageDimension.getWidth(), imageDimension.getHeight());
             Surface surface = new Surface(texture);
-//            int width = 227;
-//            int height = 227;
+
             int width = 448;
             int height = 448;
-
-
-//            // 获取指定摄像头的特性
-//            CameraCharacteristics characteristics = manager.getCameraCharacteristics(mCameraId);
-//            // 获取摄像头支持的配置属性
-//            StreamConfigurationMap map = characteristics.get( CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-//            // 获取摄像头支持的最大尺寸
-//            Size largest = Collections.max( Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)), new CompareSizesByArea());
             // 创建一个ImageReader对象，用于获取摄像头的图像数据
-            //ImageReader reader = ImageReader.newInstance(largestImgSize.getWidth(), largestImgSize.getHeight(), PixelFormat.RGBA_8888, 5);
-            imageReader = ImageReader.newInstance(imageDimension.getWidth(), imageDimension.getHeight(), PixelFormat.RGBA_8888, 5);
+            //imageReader = ImageReader.newInstance(imageDimension.getWidth(), imageDimension.getHeight(), PixelFormat.RGBA_8888, 5);
+            imageReader = ImageReader.newInstance(imageDimension.getWidth(), imageDimension.getHeight(), ImageFormat.JPEG, 2);
 
             //ImageReader imageReader = ImageReader.newInstance(width, height, ImageFormat.YUV_420_888, 4);
-            //ImageReader imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 5);
 
             ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
                 @Override
@@ -355,7 +345,27 @@ public final class  ClassifyCamera extends AppCompatActivity  implements View.On
                             return;
                         }
                         processing = true;
+                        Log.i(TAG, "image saved111111111111111111");
                         if (true) {
+                            Image.Plane[] planes = image.getPlanes();
+                            if (planes[0].getBuffer() == null) {
+                                processing = false;
+                                return;
+                            }
+                            // 获取捕获的照片数据
+                            ByteBuffer buffer = planes[0].getBuffer();
+                            byte[] bytes = new byte[buffer.remaining()];
+                            buffer.get(bytes);
+                            predictedClass = classificationFromCaffe2t(bytes);
+                            Log.i(TAG, "image saved");
+
+//                            String name = "/1test/imgs_big/"+ imgs_count + ".jpg";
+//                            imgs_count++;
+//                            File file = new File(Environment.getExternalStorageDirectory(), name);
+//                            FileOutputStream output = new FileOutputStream(file);
+//                            output.write(bytes);
+                        }
+                        if (!true) {
                             Image.Plane[] planes = image.getPlanes();
                             if (planes[0].getBuffer() == null) {
                                 processing = false;
